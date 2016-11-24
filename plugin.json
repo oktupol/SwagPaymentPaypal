@@ -8,10 +8,19 @@
     "link": "http://store.shopware.com",
     "author": "shopware AG",
 
-    "currentVersion": "3.3.8",
+    "currentVersion": "3.4.4",
 
     "changelog": {
         "de": {
+            "3.4.4": "PT-7016 - Bugfix: Falsche Stückzahl bei Nettobestellungen;",
+            "3.4.3": "PT-5913 - Bugfix: Prefix für die Bestellnummer, die zu PayPal gesendet wird; PT-6329 - Bugfix: Menge der Warenkorbpositionen im Express Checkout; PT-6443 - Bugfix: Benutzung von SSL Zertifikaten; PT-6651 - Bugfix: Logo in der Sidebar; PT-6841 - Bugfix: Accounterstellung im Express Checkout;",
+            "3.4.2": "PT-6363 - Bugfix: Problem mit Adressvalidierung; PT-6367 - Bugfix: REST API Dokumentation herunterladen;",
+            "3.4.1": "PT-6218 - Bugfix: Update Methode; PT-6366 - Bugfix: CSRF-Token Fehler;",
+            "3.4.0": "PT-5645 - Bugfix: Template Vererbung; PT-5834 - Feature: Shopware 5.2 Kompatibilität;",
+            "3.3.12": "PT-5578 - Feature: Fehlermeldungen werden im Shopware Log gespeichert;",
+            "3.3.11": "PT-5607 - Bugfix: Problem mit Paypal Express;",
+            "3.3.10": "PT-5392 - Bugfix: Umstellung auf POST Methode beim API Client (<a href=\"https://www.paypal-knowledge.com/infocenter/index?page=content&widgetview=true&id=FAQ1927&viewlocale=en_US\">siehe Papyaldokumenation</a>). Plugin Konfiguration 'SSL-Version (CURLOPT-SSLVERSION)' entfernt;",
+            "3.3.9": "PT-5462 - Bugfix: Abo-Commerce führt nicht mehr zu Zahlungsstatus 'Pending';",
             "3.3.8": "PT-5371 - Bugfix: Problem mit AboCommerce;",
             "3.3.7": "PT-5242 - Bugfix: Veraltete Felder ersetzt;",
             "3.3.6": "PT-4548 - Bugfix: Weiterleitung nach Paypal-Abbruch geändert; PT-4713 - Bugfix: Sortierung nach Zahlungsstatus im Backend Modul;",
@@ -28,6 +37,15 @@
             "3.0.0": "Allgemeine Verbesserungen; API-Update"
         },
         "en": {
+            "3.4.4": "PT-7016 - Bugfix: Wrong quantity in net orders;",
+            "3.4.3": "PT-5913 - Bugfix: Prefix for order number, which is send to PayPal; PT-6329 - Bugfix: Quantity of cart items in Express Checkout; PT-6443 - Bugfix: Usage of SSL certificates; PT-6651 - Bugfix: Logo in sidebar; PT-6841 - Bugfix: Creation of accounts in Express Checkout;",
+            "3.4.2": "PT-6363 - Bugfix: Problem with address validation; PT-6367 - Bugfix: Download REST API documentation;",
+            "3.4.1": "PT-6218 - Bugfix: Update method; PT-6366 - Bugfix: CSRF token error;",
+            "3.4.0": "PT-5645 - Bugfix: Template inheritance; PT-5834 - Feature: Shopware 5.2 compatibility;",
+            "3.3.12": "PT-5578 - Feature: Error messages are logged in the Shopware log;",
+            "3.3.11": "PT-5607 - Bugfix: Problem with Paypal Express;",
+            "3.3.10": "PT-5392 - Bugfix: Change to POST method in API Client (<a href=\"https://www.paypal-knowledge.com/infocenter/index?page=content&widgetview=true&id=FAQ1927&viewlocale=en_US\">see Papyal documentation</a>). Removed plugin configuration 'SSL-Version (CURLOPT-SSLVERSION)';",
+            "3.3.9": "PT-5462 - Bugfix: Abo-commerce won't result in payment-status 'pending' anymore;",
             "3.3.8": "PT-5371 - Bugfix: Problem with AboCommerce;",
             "3.3.7": "PT-5242 - Bugfix: Replaced deprecated fields;",
             "3.3.6": "PT-4548 - Bugfix: Changed the redirect after cancelling a paypal-payment; PT-4713 - Bugfix: Sort for payment status in backend module;",
@@ -46,7 +64,7 @@
     },
 
     "compatibility": {
-        "minimumVersion": "4.1.3",
+        "minimumVersion": "4.2.0",
         "maximumVersion": null,
         "blacklist": [
         ]

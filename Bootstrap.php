@@ -7,6 +7,8 @@
  * file that was distributed with this source code.
  */
 
+use Shopware\Plugins\SwagPaymentPaypal\Components\Paypal\AddressValidator;
+
 class Shopware_Plugins_Frontend_SwagPaymentPaypal_Bootstrap extends Shopware_Components_Plugin_Bootstrap
 {
     /**
@@ -99,8 +101,15 @@ class Shopware_Plugins_Frontend_SwagPaymentPaypal_Bootstrap extends Shopware_Com
             //always remove unneeded settings
             $em = $this->get('models');
             $form = $this->Form();
-            $em->remove($form->getElement('paypalLogInApi'));
-            $em->remove($form->getElement('paypalSeamlessCheckout'));
+            $paypalLogInApi = $form->getElement('paypalLogInApi');
+            if ($paypalLogInApi !== null) {
+                $em->remove($paypalLogInApi);
+            }
+            $paypalSeamlessCheckout = $form->getElement('paypalSeamlessCheckout');
+            if ($paypalSeamlessCheckout !== null) {
+                $em->remove($paypalSeamlessCheckout);
+
+            }
             $em->flush();
         }
         if (version_compare($version, '3.3.4', '<')) {
@@ -273,6 +282,23 @@ EOD;
             'Theme_Compiler_Collect_Plugin_Less',
             'addLessFiles'
         );
+
+        $this->subscribeEvent('Enlight_Bootstrap_AfterInitResource_shopware_account.address_validator', 'decorateAddressValidator');
+    }
+
+    /**
+     * Modifies the default address validator to be able to allow values which were not provided by paypal but may be required in shopware.
+     *
+     * @param Enlight_Event_EventArgs $args
+     */
+    public function decorateAddressValidator(Enlight_Event_EventArgs $args)
+    {
+        require_once __DIR__ . '/Components/Paypal/AddressValidator.php';
+
+        $innerValidator = $this->get('shopware_account.address_validator');
+        $validator = new AddressValidator($innerValidator, Shopware()->Container());
+
+        Shopware()->Container()->set('shopware_account.address_validator', $validator);
     }
 
     /**
@@ -443,22 +469,6 @@ EOD;
             array(
                 'label' => '<a href="http://php.net/manual/de/book.curl.php" target="_blank">Curl</a> verwenden (wenn es verfügbar ist)',
                 'value' => true
-            )
-        );
-        $form->setElement(
-            'select',
-            'paypalSslVersion',
-            array(
-                'label' => 'SSL-Version (<a href="http://curl.haxx.se/libcurl/c/CURLOPT_SSLVERSION.html" target="_blank">CURLOPT_SSLVERSION</a>)',
-                'value' => 0,
-                'store' => array(
-                    array(0, 'Default (Keine Vorgabe)'),
-                    array(1, 'TLSv1'),
-                    array(4, 'TLSv1_0 (Available since PHP 5.5.19 and 5.6.3)'),
-                    array(5, 'TLSv1_1 (Available since PHP 5.5.19 and 5.6.3)'),
-                    array(6, 'TLSv1_2 (Available since PHP 5.5.19 and 5.6.3)'),
-                ),
-                'description' => 'Funktioniert nur zusammen mit Curl',
             )
         );
 
@@ -634,7 +644,7 @@ EOD;
             array(
                 'label' => 'Bestellnummer für PayPal mit einem Shop-Prefix versehen',
                 'description' => 'Wenn Sie Ihren PayPal-Account für mehrere Shops nutzen, können Sie vermeiden, dass es Überschneidungen bei den Bestellnummern gibt, indem Sie hier ein eindeutiges Prefix definieren.',
-                'value' => 'MeinShop_',
+                'emptyText' => 'MeinShop_',
                 'scope' => \Shopware\Models\Config\Element::SCOPE_SHOP,
                 'vtype' => 'alphanum'
             )
@@ -942,12 +952,20 @@ EOD;
     /**
      * Creates and returns the paypal rest client for an event.
      *
-     * @return \Shopware_Components_Paypal_Client
+     * @return \Shopware_Components_Paypal_RestClient
      */
     public function onInitResourcePaypalRestClient()
     {
         require_once __DIR__ . '/Components/Paypal/RestClient.php';
-        $client = new Shopware_Components_Paypal_RestClient($this->Config());
+
+
+        $rootDir = Shopware()->Container()->getParameter('kernel.root_dir');
+        $caPath = $rootDir.'/engine/Shopware/Components/HttpClient/cacert.pem';
+        if (!is_readable($caPath)) {
+            $caPath = null;
+        }
+
+        $client = new Shopware_Components_Paypal_RestClient($this->Config(), $caPath);
 
         return $client;
     }
@@ -955,8 +973,16 @@ EOD;
     /**
      * @return bool
      */
+    public function isAtLeastShopware42()
+    {
+        return $this->assertMinimumVersion('4.2.0');
+    }
+
+    /**
+     * @return bool
+     */
     public function isShopware51()
     {
-        return $this->assertMinimumVersion("5.1.0");
+        return $this->assertMinimumVersion('5.1.0');
     }
 }

@@ -7,7 +7,9 @@
  * file that was distributed with this source code.
  */
 
-class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_Frontend_Payment
+require_once __DIR__ . '/../../Components/CSRFWhitelistAware.php';
+
+class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_Frontend_Payment implements \Shopware\Components\CSRFWhitelistAware
 {
     /**
      * @var Shopware_Plugins_Frontend_SwagPaymentPaypal_Bootstrap $plugin
@@ -18,6 +20,17 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
      * @var Enlight_Components_Session_Namespace $session
      */
     private $session;
+
+    /**
+     * Whitelist notify- and webhook-action for paypal
+     */
+    public function getWhitelistedCSRFActions()
+    {
+        return array(
+            'notify',
+            'webhook'
+        );
+    }
 
     /**
      * {@inheritdoc}
@@ -271,6 +284,10 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
             return $this->forward('gateway');
         }
 
+        if ($initialResponse['ACK'] === 'Failure') {
+            $this->logError($initialResponse);
+        }
+
         switch (!empty($details['CHECKOUTSTATUS']) ? $details['CHECKOUTSTATUS'] : null) {
             case 'PaymentActionCompleted':
             case 'PaymentCompleted':
@@ -293,7 +310,7 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
                     unset($this->session->PaypalResponse);
                     $response = $this->finishCheckout($details);
                     if ($response['ACK'] != 'Success') {
-                        if ($response['PAYMENTINFO_0_ERRORCODE'] == 10486) {
+                        if ($response['L_ERRORCODE0'] == 10486) {
                             if (!empty($config->paypalSandbox)) {
                                 $redirectUrl = 'https://www.sandbox.paypal.com/cgi-bin/';
                             } else {
@@ -305,6 +322,8 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
                         } else {
                             $this->View()->PaypalConfig = $config;
                             $this->View()->PaypalResponse = $response;
+
+                            $this->logError($response);
                         }
                     } elseif ($response['REDIRECTREQUIRED'] === 'true') {
                         if (!empty($config->paypalSandbox)) {
@@ -346,6 +365,7 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
                 $this->View()->PaypalResponse = $initialResponse;
                 $this->View()->PaypalDetails = $details;
                 unset($this->session->PaypalResponse);
+
                 break;
         }
     }
@@ -493,7 +513,7 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
             if (!empty($prefix)) {
                 // Set prefixed invoice id - Remove special chars and spaces
                 $prefix = str_replace(' ', '', $prefix);
-                $prefix = preg_replace('/[^A-Za-z0-9\-]/', '', $prefix);
+                $prefix = preg_replace('/[^A-Za-z0-9\_]/', '', $prefix);
                 $params['PAYMENTREQUEST_0_INVNUM'] = $prefix . $orderNumber;
             } else {
                 $params['PAYMENTREQUEST_0_INVNUM'] = $orderNumber;
@@ -551,7 +571,7 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
                     SELECT id, 1 FROM s_order WHERE ordernumber = ?
                     ON DUPLICATE KEY UPDATE swag_payal_express = 1
                 ';
-                $this->get('db')->query($sql, array($orderNumber, ));
+                $this->get('db')->query($sql, array($orderNumber,));
             } catch (Exception $e) {
             }
         }
@@ -658,24 +678,33 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
         $paymentId = $this->get('db')->fetchOne($sql, array('paypal'));
         $data['payment']['object'] = $module->sGetPaymentMeanById($paymentId);
 
-        //if(!$finish) {
         $shop = $this->get('shop');
         $shop = $shop->getMain() ?: $shop;
         $sql = 'SELECT `password` FROM `s_user` WHERE `email` LIKE ? AND `active` = 1 ';
         if ($shop->getCustomerScope()) {
             $sql .= "AND `subshopID` = {$shop->getId()} ";
         }
-        $sql .= 'ORDER BY `accountmode`';
+
+        //Always use the latest account. It is possible, that the account already exists but the password may be invalid.
+        //The plugin then creates a new account and uses that one instead.
+        $sql .= 'ORDER BY `id` DESC';
         $data['auth']['passwordMD5'] = $this->get('db')->fetchOne($sql, array($data['auth']['email']));
-        //}
+
         // First try login / Reuse paypal account
         $module->sSYSTEM->_POST = $data['auth'];
         $module->sLogin(true);
 
         // Check login status
         if ($module->sCheckUser()) {
-            $module->sSYSTEM->_POST = $data['shipping'];
-            $module->sUpdateShipping();
+            //Save the new address.
+            if (Shopware::VERSION === '___VERSION___' || version_compare(Shopware::VERSION, '5.2.0', '>=')) {
+                $userId = $this->session->offsetGet('sUserId');
+                $this->updateShipping($userId, $data['shipping']);
+            } else {
+                $module->sSYSTEM->_POST = $data['shipping'];
+                $module->sUpdateShipping();
+            }
+
             $module->sSYSTEM->_POST = array('sPayment' => $paymentId);
             $module->sUpdatePayment();
         } else {
@@ -693,15 +722,74 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
                 }
             }
             $session->sRegisterFinished = false;
-            if (version_compare(Shopware::VERSION, '4.3.0', '>=') || Shopware::VERSION == '___VERSION___') {
+            if (version_compare(Shopware::VERSION, '4.3.0', '>=') && version_compare(Shopware::VERSION, '5.2.0', '<')) {
                 $session->sRegister = $data;
-            } else {
+            } elseif (version_compare(Shopware::VERSION, '4.3.0', '<')) {
                 $session->sRegister = new ArrayObject($data, ArrayObject::ARRAY_AS_PROPS);
             }
             if ($finish) {
-                $module->sSaveRegister();
+                if (Shopware::VERSION === '___VERSION___' || version_compare(Shopware::VERSION, '5.2.0', '>=')) {
+                    $this->saveUser($data);
+                    $module->sSYSTEM->_POST = $data['auth'];
+                    $module->sLogin(true);
+                    $this->returnAction();
+                } else {
+                    $module->sSaveRegister();
+                }
             }
         }
+    }
+
+    /**
+     * Saves a new user to the system.
+     *
+     * @param array $data
+     */
+    private function saveUser($data)
+    {
+        $plain = array_merge($data['auth'], $data['shipping']);
+
+        //Create forms and validate the input
+        $customer = new Shopware\Models\Customer\Customer();
+        $form = $this->createForm('Shopware\Bundle\AccountBundle\Form\Account\PersonalFormType', $customer);
+        $form->submit($plain);
+
+        $address = new Shopware\Models\Customer\Address();
+        $form = $this->createForm('Shopware\Bundle\AccountBundle\Form\Account\AddressFormType', $address);
+        $form->submit($plain);
+
+        /** @var Shopware\Bundle\StoreFrontBundle\Struct\ShopContextInterface $context */
+        $context = $this->get('shopware_storefront.context_service')->getShopContext();
+
+        /** @var Shopware\Bundle\StoreFrontBundle\Struct\Shop $shop */
+        $shop = $context->getShop();
+
+        /** @var Shopware\Bundle\AccountBundle\Service\RegisterServiceInterface $registerService */
+        $registerService = $this->get('shopware_account.register_service');
+        $registerService->register($shop, $customer, $address, $address);
+    }
+
+    /**
+     * Updates the shipping address to the latest address that has been provided by PayPal.
+     *
+     * @param int $userId
+     * @param array $shippingData
+     */
+    private function updateShipping($userId, $shippingData)
+    {
+        /** @var \Shopware\Components\Model\ModelManager $em */
+        $em = $this->get('models');
+
+        /** @var \Shopware\Models\Customer\Customer $customer */
+        $customer = $em->getRepository('Shopware\Models\Customer\Customer')->findOneBy(array('id' => $userId));
+
+        /** @var \Shopware\Models\Customer\Address $address */
+        $address = $customer->getDefaultShippingAddress();
+
+        $form = $this->createForm('Shopware\Bundle\AccountBundle\Form\Account\AddressFormType', $address);
+        $form->submit($shippingData);
+
+        $this->get('shopware_account.address_service')->update($address);
     }
 
     /**
@@ -742,23 +830,49 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
 
         $config = $this->plugin->Config();
         if ($config->get('paypalTransferCart') && $params['PAYMENTREQUEST_0_ITEMAMT'] != '0.00' && count($basket['content']) < 25) {
-            foreach ($basket['content'] as $key => $item) {
+            $key = 0;
+            foreach ($basket['content'] as $item) {
+                $sku = $item['ordernumber'];
+                $name = $item['articlename'];
+                $quantity = (int)$item['quantity'];
                 if (!empty($user['additional']['charge_vat']) && !empty($item['amountWithTax'])) {
                     $amount = round($item['amountWithTax'], 2);
-                    $quantity = 1;
                 } else {
                     $amount = str_replace(',', '.', $item['amount']);
-                    $quantity = $item['quantity'];
-                    $amount = $amount / $item['quantity'];
                 }
-                $amount = round($amount, 2);
+
+                // If more than 2 decimal places
+                if (round($amount / $quantity, 2) * $quantity != $amount) {
+                    if ($quantity != 1) {
+                        $name = $quantity . 'x ' . $name;
+                    }
+                    $quantity = 1;
+                } else {
+                    $amount = round($amount / $quantity, 2);
+                }
+
+                // Add support for custom products
+                if (!empty($item['customProductMode'])) {
+                    $last = $key - 1;
+                    if (isset($params['L_PAYMENTREQUEST_0_NUMBER' . $last])) {
+                        if ($item['customProductMode'] == 2) {
+                            $sku = $sku ?: $params['L_PAYMENTREQUEST_0_NUMBER' . $last];
+                        } elseif ($item['customProductMode'] == 3) {
+                            $params['L_PAYMENTREQUEST_0_NAME' . $last] .= ': ' . $name;
+                            $params['L_PAYMENTREQUEST_0_AMT' . $last] += $amount;
+                            continue;
+                        }
+                    }
+                }
+
                 $article = array(
-                    'L_PAYMENTREQUEST_0_NUMBER' . $key => $item['ordernumber'],
-                    'L_PAYMENTREQUEST_0_NAME' . $key => $item['articlename'],
+                    'L_PAYMENTREQUEST_0_NUMBER' . $key => $sku,
+                    'L_PAYMENTREQUEST_0_NAME' . $key => $name,
                     'L_PAYMENTREQUEST_0_AMT' . $key => $amount,
                     'L_PAYMENTREQUEST_0_QTY' . $key => $quantity
                 );
                 $params = array_merge($params, $article);
+                ++$key;
             }
         }
 
@@ -768,6 +882,23 @@ class Shopware_Controllers_Frontend_PaymentPaypal extends Shopware_Controllers_F
         }
 
         return $params;
+    }
+
+    /**
+     * Helper method to log an error
+     *
+     * @param array $response
+     */
+    private function logError($response)
+    {
+        if (!$this->plugin->isAtLeastShopware42()) {
+            return;
+        }
+
+        $message = '[' . $response['L_ERRORCODE0'] . '] - ' . $response['L_SHORTMESSAGE0'] . '. ' . $response['L_LONGMESSAGE0'];
+        /** @var \Shopware\Components\Logger $pluginLogger */
+        $pluginLogger = Shopware()->Container()->get('pluginlogger');
+        $pluginLogger->error($message);
     }
 
     /**
